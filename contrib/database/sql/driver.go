@@ -50,7 +50,6 @@ func (d *tracedDriver) Open(dsn string) (c driver.Conn, err error) {
 type traceParams struct {
 	config     *registerConfig
 	driverName string
-	resource   string
 	meta       map[string]string
 }
 

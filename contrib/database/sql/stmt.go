@@ -42,6 +42,7 @@ func (s *tracedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) 
 		return nil, ctx.Err()
 	default:
 	}
+	//lint:ignore SA1019 this is for backward-compatibility
 	res, err = s.Exec(dargs)
 	s.tryTrace(ctx, "Exec", s.query, start, err)
 	return res, err
@@ -64,6 +65,7 @@ func (s *tracedStmt) QueryContext(ctx context.Context, args []driver.NamedValue)
 		return nil, ctx.Err()
 	default:
 	}
+	//lint:ignore SA1019 this is for backward-compatibility
 	rows, err = s.Query(dargs)
 	s.tryTrace(ctx, "Query", s.query, start, err)
 	return rows, err

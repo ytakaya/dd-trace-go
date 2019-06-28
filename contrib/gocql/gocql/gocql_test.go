@@ -127,9 +127,10 @@ func TestAnalyticsSettings(t *testing.T) {
 		cluster := newCassandraCluster()
 		session, err := cluster.CreateSession()
 		assert.Nil(t, err)
-		q := session.Query("CREATE KEYSPACE trace WITH REPLICATION = { 'class' : 'NetworkTopologyStrategy', 'datacenter1' : 1 };")
+		q := session.Query("SELECT * from trace.person")
 		iter := WrapQuery(q, opts...).Iter()
 		err = iter.Close()
+		assert.Nil(t, err)
 
 		spans := mt.FinishedSpans()
 		assert.Len(t, spans, 1)

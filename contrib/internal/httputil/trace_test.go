@@ -53,6 +53,7 @@ func TestTraceAndServe(t *testing.T) {
 			assert.True(ok, "ResponseWriter should implement http.Hijacker")
 			_, ok = w.(http.Flusher)
 			assert.True(ok, "ResponseWriter should implement http.Flusher")
+			//lint:ignore SA1019 this is for backward-compatibility
 			_, ok = w.(http.CloseNotifier)
 			assert.True(ok, "ResponseWriter should implement http.CloseNotifier")
 			fmt.Fprintln(w, "Hello, world!")

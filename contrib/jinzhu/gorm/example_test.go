@@ -16,10 +16,10 @@ func ExampleOpen() {
 
 	// Open the registered driver, allowing all uses of the returned *gorm.DB to be traced.
 	db, err := gormtrace.Open("postgres", "postgres://pqgotest:password@localhost/pqgotest?sslmode=disable")
-	defer db.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	user := struct {
 		gorm.Model

@@ -20,17 +20,17 @@ func Prepare(tableName string) func() {
 	queryDrop := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
 	queryCreate := fmt.Sprintf("CREATE TABLE %s (id integer NOT NULL DEFAULT '0', name text)", tableName)
 	mysql, err := sql.Open("mysql", "test:test@tcp(127.0.0.1:3306)/test")
-	defer mysql.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer mysql.Close()
 	mysql.Exec(queryDrop)
 	mysql.Exec(queryCreate)
 	postgres, err := sql.Open("postgres", "postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable")
-	defer postgres.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer postgres.Close()
 	postgres.Exec(queryDrop)
 	postgres.Exec(queryCreate)
 	return func() {
@@ -78,8 +78,8 @@ func testQuery(cfg *Config) func(*testing.T) {
 		cfg.mockTracer.Reset()
 		assert := assert.New(t)
 		rows, err := cfg.DB.Query(query)
-		defer rows.Close()
 		assert.Nil(err)
+		defer rows.Close()
 
 		spans := cfg.mockTracer.FinishedSpans()
 		assert.Len(spans, 1)

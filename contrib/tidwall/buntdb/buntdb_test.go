@@ -455,11 +455,13 @@ func getDatabase(t *testing.T, opts ...Option) *DB {
 		t.Fatal(err)
 	}
 
+	//lint:ignore SA1019 this is for backward-compatibility
 	err = bdb.CreateIndex("test-index", "regular:*", buntdb.IndexBinary)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	//lint:ignore SA1019 this is for backward-compatibility
 	err = bdb.CreateSpatialIndex("test-spatial-index", "spatial:*", buntdb.IndexRect)
 	if err != nil {
 		t.Fatal(err)

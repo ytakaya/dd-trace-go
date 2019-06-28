@@ -159,7 +159,6 @@ func (s *mockspan) SetOperationName(operationName string) {
 	s.Lock()
 	defer s.Unlock()
 	s.name = operationName
-	return
 }
 
 // BaggageItem returns the baggage item with the given key.
@@ -171,7 +170,6 @@ func (s *mockspan) BaggageItem(key string) string {
 // item should propagate to all descendant spans, both in- and cross-process.
 func (s *mockspan) SetBaggageItem(key, val string) {
 	s.context.setBaggageItem(key, val)
-	return
 }
 
 // Finish finishes the current span with the given options.

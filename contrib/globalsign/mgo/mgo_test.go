@@ -36,10 +36,9 @@ func testMongoCollectionCommand(assert *assert.Assertions, command func(*Collect
 	)
 
 	session, err := Dial("localhost:27017", WithServiceName("unit-tests"), WithContext(ctx))
-	defer session.Close()
-
 	assert.NotNil(session)
 	assert.Nil(err)
+	defer session.Close()
 
 	db := session.DB("my_db")
 	collection := db.C("MyCollection")

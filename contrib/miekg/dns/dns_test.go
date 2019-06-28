@@ -21,13 +21,21 @@ func TestDNS(t *testing.T) {
 	addr := getFreeAddr(t).String()
 
 	// start the server
+	errCh := make(chan error)
 	go func() {
-		err := ListenAndServe(addr, "udp", mux)
-		if err != nil {
-			t.Fatal(err)
-		}
+		errCh <- ListenAndServe(addr, "udp", mux)
 	}()
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
 	waitTillUDPReady(t, addr)
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
+	}
 
 	mt := mocktracer.Start()
 	defer mt.Stop()

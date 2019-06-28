@@ -32,7 +32,7 @@ func TestSpanFromContext(t *testing.T) {
 		assert.False(ok)
 		_, ok = span.(*internal.NoopSpan)
 		assert.True(ok)
-		span, ok = SpanFromContext(nil)
+		span, ok = SpanFromContext(context.TODO())
 		assert.False(ok)
 		_, ok = span.(*internal.NoopSpan)
 		assert.True(ok)

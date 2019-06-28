@@ -23,6 +23,7 @@ func (tc *tracedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (tx dr
 		}
 		return &tracedTx{tx, tc.traceParams, ctx}, nil
 	}
+	//lint:ignore SA1019 this is for backward-compatibility
 	tx, err = tc.Conn.Begin()
 	tc.tryTrace(ctx, "Begin", "", start, err)
 	if err != nil {
@@ -50,6 +51,7 @@ func (tc *tracedConn) PrepareContext(ctx context.Context, query string) (stmt dr
 }
 
 func (tc *tracedConn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	//lint:ignore SA1019 this is for backward-compatibility
 	if execer, ok := tc.Conn.(driver.Execer); ok {
 		return execer.Exec(query, args)
 	}
@@ -88,6 +90,7 @@ func (tc *tracedConn) Ping(ctx context.Context) (err error) {
 }
 
 func (tc *tracedConn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	//lint:ignore SA1019 this is for backward-compatibility
 	if queryer, ok := tc.Conn.(driver.Queryer); ok {
 		return queryer.Query(query, args)
 	}
