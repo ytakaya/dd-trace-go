@@ -38,14 +38,13 @@ func TestPayloadIntegrity(t *testing.T) {
 	for _, n := range []int{10, 1 << 10, 1 << 17} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
 			p.reset()
-			lists := make(spanLists, n)
+			n := 10
+			list := newSpanList(n)
 			for i := 0; i < n; i++ {
-				list := newSpanList(i%5 + 1)
-				lists[i] = list
-				p.push(list)
+				p.push(list[i])
 			}
 			want.Reset()
-			err := msgp.Encode(want, lists)
+			err := msgp.Encode(want, list)
 			assert.NoError(err)
 			assert.Equal(want.Len(), p.size())
 			assert.Equal(p.itemCount(), n)
@@ -65,10 +64,11 @@ func TestPayloadDecode(t *testing.T) {
 	for _, n := range []int{10, 1 << 10} {
 		t.Run(strconv.Itoa(n), func(t *testing.T) {
 			p.reset()
+			list := newSpanList(n)
 			for i := 0; i < n; i++ {
-				p.push(newSpanList(i%5 + 1))
+				p.push(list[i])
 			}
-			var got spanLists
+			var got spanList
 			err := msgp.Decode(p, &got)
 			assert.NoError(err)
 		})
@@ -88,16 +88,12 @@ func benchmarkPayloadThroughput(count int) func(*testing.B) {
 		p := newPayload()
 		s := newBasicSpan("X")
 		s.Meta["key"] = strings.Repeat("X", 10*1024)
-		trace := make(spanList, count)
-		for i := 0; i < count; i++ {
-			trace[i] = s
-		}
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			p.reset()
 			for p.size() < payloadMaxLimit {
-				p.push(trace)
+				p.push(s)
 			}
 		}
 	}

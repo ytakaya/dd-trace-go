@@ -7,6 +7,7 @@ package tracer
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -47,13 +48,6 @@ func TestSpanBaggage(t *testing.T) {
 	assert.Equal("value", span.BaggageItem("key"))
 }
 
-func TestSpanContext(t *testing.T) {
-	assert := assert.New(t)
-
-	span := newBasicSpan("web.request")
-	assert.NotNil(span.Context())
-}
-
 func TestSpanOperationName(t *testing.T) {
 	assert := assert.New(t)
 
@@ -79,7 +73,7 @@ func TestSpanFinishTwice(t *testing.T) {
 	assert := assert.New(t)
 	wait := time.Millisecond * 2
 
-	tracer, _, stop := startTestTracer()
+	tracer, _, _, stop := startTestTracer(t)
 	defer stop()
 
 	assert.Equal(tracer.payload.itemCount(), 0)
@@ -88,13 +82,50 @@ func TestSpanFinishTwice(t *testing.T) {
 	span := tracer.newRootSpan("pylons.request", "pylons", "/")
 	time.Sleep(wait)
 	span.Finish()
-	assert.Equal(tracer.payload.itemCount(), 1)
+	waitForPayloadCount(t, tracer.payload, 1)
 
 	previousDuration := span.Duration
 	time.Sleep(wait)
 	span.Finish()
 	assert.Equal(previousDuration, span.Duration)
-	assert.Equal(tracer.payload.itemCount(), 1)
+	waitForPayloadCount(t, tracer.payload, 1)
+}
+
+// waitForPayloadCount waits for the payload to contain n items and returns. If it times out
+// it fails the test.
+func waitForPayloadCount(t *testing.T, p *payload, n int) {
+	d := 200 * time.Millisecond
+	timeout := time.After(d)
+loop:
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting %s for payload count to become %d", d, n)
+		default:
+			if p.itemCount() == n {
+				break loop
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// expectFlush waits for n spans to be flushed into the transport or times out.
+func expectFlush(t *testing.T, transport *dummyTransport, n int) {
+	d := 200 * time.Millisecond
+	timeout := time.After(d)
+loop:
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting %s for %d spans to be flushed", d, n)
+		default:
+			if transport.Len() == n {
+				break loop
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 }
 
 func TestSpanFinishWithTime(t *testing.T) {
@@ -241,7 +272,7 @@ func TestSpanSetMetric(t *testing.T) {
 
 	// check the map is properly initialized
 	span.SetTag("bytes", 1024.42)
-	assert.Equal(3, len(span.Metrics))
+	assert.Equal(4, len(span.Metrics), fmt.Sprint(span.Metrics))
 	assert.Equal(1024.42, span.Metrics["bytes"])
 	_, ok := span.Metrics[keySamplingPriority]
 	assert.True(ok)
@@ -251,7 +282,7 @@ func TestSpanSetMetric(t *testing.T) {
 	// operating on a finished span is a no-op
 	span.Finish()
 	span.SetTag("finished.test", 1337)
-	assert.Equal(3, len(span.Metrics))
+	assert.Equal(4, len(span.Metrics))
 	_, ok = span.Metrics["finished.test"]
 	assert.False(ok)
 }
@@ -309,7 +340,7 @@ func TestSpanErrorNil(t *testing.T) {
 
 // Prior to a bug fix, this failed when running `go test -race`
 func TestSpanModifyWhileFlushing(t *testing.T) {
-	tracer, _, stop := startTestTracer()
+	tracer, _, flush, stop := startTestTracer(t)
 	defer stop()
 
 	done := make(chan struct{})
@@ -330,7 +361,7 @@ func TestSpanModifyWhileFlushing(t *testing.T) {
 		case <-done:
 			return
 		default:
-			tracer.forceFlush()
+			flush(0)
 		}
 	}
 }
@@ -356,14 +387,14 @@ func TestSpanSamplingPriority(t *testing.T) {
 		v, ok := span.Metrics[keySamplingPriority]
 		assert.True(ok)
 		assert.EqualValues(priority, v)
-		assert.EqualValues(*span.context.trace.priority, v)
+		assert.EqualValues(*span.context.priority, v)
 
 		childSpan := tracer.newChildSpan("my.child", span)
 		v0, ok0 := span.Metrics[keySamplingPriority]
 		v1, ok1 := childSpan.Metrics[keySamplingPriority]
 		assert.Equal(ok0, ok1)
 		assert.Equal(v0, v1)
-		assert.EqualValues(*childSpan.context.trace.priority, v0)
+		assert.EqualValues(*childSpan.context.priority, v0)
 	}
 }
 

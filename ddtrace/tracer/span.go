@@ -19,24 +19,19 @@ import (
 
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/internal"
 
 	"github.com/tinylib/msgp/msgp"
 	"golang.org/x/xerrors"
 )
 
-type (
-	// spanList implements msgp.Encodable on top of a slice of spans.
-	spanList []*span
-
-	// spanLists implements msgp.Decodable on top of a slice of spanList.
-	// This type is only used in tests.
-	spanLists []spanList
-)
+// spanList implements msgp.Encodable on top of a slice of spans.
+type spanList []*span
 
 var (
 	_ ddtrace.Span   = (*span)(nil)
 	_ msgp.Encodable = (*spanList)(nil)
-	_ msgp.Decodable = (*spanLists)(nil)
+	_ msgp.Decodable = (*spanList)(nil)
 )
 
 // errorConfig holds customization options for setting error tags.
@@ -308,7 +303,10 @@ func (s *span) finish(finishTime int64) {
 		// not sampled by local sampler
 		return
 	}
-	s.context.finish()
+	if tr, ok := internal.GetGlobalTracer().(*tracer); ok {
+		// we have a tracer that can receive spans
+		tr.pushSpan(s)
+	}
 }
 
 // String returns a human readable representation of the span. Not for
@@ -343,4 +341,6 @@ const (
 	keySamplingPriorityRate = "_sampling_priority_rate_v1"
 	keyOrigin               = "_dd.origin"
 	keyHostname             = "_dd.hostname"
+	keyContainerID          = "_dd.container_id"
+	keyRootSpan             = "_dd.root"
 )

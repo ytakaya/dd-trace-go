@@ -8,6 +8,7 @@ package tracer
 import (
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
@@ -32,23 +33,13 @@ type tracer struct {
 	*config
 	*payload
 
-	// flushChan triggers a flush of the buffered payload. If the sent channel is
-	// not nil (only in tests), it will receive confirmation of a finished flush.
-	flushChan chan chan<- struct{}
+	exitChan chan struct{}  // stop notifier
+	stopped  chan struct{}  // will be closed when the worker exits
+	climit   chan struct{}  // buffered channel that limits the number of concurrent outgoing connections
+	wg       sync.WaitGroup // waits for all connections to finish before exiting the tracer.
 
-	// exitChan requests that the tracer stops.
-	exitChan chan struct{}
-
-	// payloadChan receives traces to be added to the payload.
-	payloadChan chan []*span
-
-	// stopped is a channel that will be closed when the worker has exited.
-	stopped chan struct{}
-
-	// syncPush is used for testing. When non-nil, it causes pushTrace to become
-	// a synchronous (blocking) operation, meaning that it will only return after
-	// the trace has been fully processed and added onto the payload.
-	syncPush chan struct{}
+	// spanChan receives finished spans to be added to the payload.
+	spanChan chan *span
 
 	// prioritySampling holds an instance of the priority sampler.
 	prioritySampling *prioritySampler
@@ -64,11 +55,15 @@ const (
 
 	// payloadMaxLimit is the maximum payload size allowed and should indicate the
 	// maximum size of the package that the agent can receive.
-	payloadMaxLimit = 9.5 * 1024 * 1024 // 9.5 MB
+	payloadMaxLimit = 2 * 1024 * 1024 // 9.5 MB
 
 	// payloadSizeLimit specifies the maximum allowed size of the payload before
 	// it will trigger a flush to the transport.
 	payloadSizeLimit = payloadMaxLimit / 2
+
+	// concurrentConnectionLimit specifies the maximum number of concurrent outgoing
+	// connections allowed.
+	concurrentConnectionLimit = 100
 )
 
 // Start starts the tracer with the given set of options. It will stop and replace
@@ -115,7 +110,7 @@ func Inject(ctx ddtrace.SpanContext, carrier interface{}) error {
 // payloadQueueSize is the buffer size of the trace channel.
 const payloadQueueSize = 1000
 
-func newTracer(opts ...StartOption) *tracer {
+func newUnstartedTracer(opts ...StartOption) *tracer {
 	c := new(config)
 	defaults(c)
 	for _, fn := range opts {
@@ -136,12 +131,12 @@ func newTracer(opts ...StartOption) *tracer {
 	t := &tracer{
 		config:           c,
 		payload:          newPayload(),
-		flushChan:        make(chan chan<- struct{}),
 		exitChan:         make(chan struct{}),
-		payloadChan:      make(chan []*span, payloadQueueSize),
+		spanChan:         make(chan *span, payloadQueueSize),
 		stopped:          make(chan struct{}),
 		prioritySampling: newPrioritySampler(),
 		pid:              strconv.Itoa(os.Getpid()),
+		climit:           make(chan struct{}, concurrentConnectionLimit),
 	}
 	if c.runtimeMetrics {
 		statsd, err := statsd.NewBuffered(t.config.dogstatsdAddr, 40)
@@ -152,32 +147,32 @@ func newTracer(opts ...StartOption) *tracer {
 			go t.reportMetrics(statsd, defaultMetricsReportInterval)
 		}
 	}
+	return t
+}
 
-	go t.worker()
+func newTracer(opts ...StartOption) *tracer {
+	t := newUnstartedTracer(opts...)
+
+	go func() {
+		defer close(t.stopped)
+		ticker := time.NewTicker(flushInterval)
+		defer ticker.Stop()
+		t.worker(ticker.C)
+	}()
 
 	return t
 }
 
 // worker receives finished traces to be added into the payload, as well
 // as periodically flushes traces to the transport.
-func (t *tracer) worker() {
-	defer close(t.stopped)
-	ticker := time.NewTicker(flushInterval)
-	defer ticker.Stop()
-
+func (t *tracer) worker(tick <-chan time.Time) {
 	for {
 		select {
-		case trace := <-t.payloadChan:
-			t.pushPayload(trace)
+		case span := <-t.spanChan:
+			t.addToPayload(span)
 
-		case <-ticker.C:
-			t.flushPayload()
-
-		case confirm := <-t.flushChan:
-			t.flushPayload()
-			if confirm != nil {
-				confirm <- struct{}{}
-			}
+		case <-tick:
+			t.flush()
 
 		case <-t.exitChan:
 		loop:
@@ -185,32 +180,29 @@ func (t *tracer) worker() {
 			// before the final flush to ensure no traces are lost (see #526)
 			for {
 				select {
-				case trace := <-t.payloadChan:
-					t.pushPayload(trace)
+				case span := <-t.spanChan:
+					t.addToPayload(span)
 				default:
 					break loop
 				}
 			}
-			t.flushPayload()
+			t.flush()
 			return
 		}
 	}
 }
 
-func (t *tracer) pushTrace(trace []*span) {
+func (t *tracer) pushSpan(s *span) {
 	select {
 	case <-t.stopped:
 		return
 	default:
 	}
 	select {
-	case t.payloadChan <- trace:
+	case t.spanChan <- s:
+		// OK
 	default:
-		log.Error("payload queue full, dropping %d traces", len(trace))
-	}
-	if t.syncPush != nil {
-		// only in tests
-		<-t.syncPush
+		log.Error("payload queue full, dropping span")
 	}
 }
 
@@ -268,10 +260,14 @@ func (t *tracer) StartSpan(operationName string, options ...ddtrace.StartSpanOpt
 	}
 	span.context = newSpanContext(span, context)
 	if context == nil || context.span == nil {
-		// this is either a root span or it has a remote parent, we should add the PID.
+		// this is either a root span or it has a remote parent (local root)
+		span.setMetric(keyRootSpan, 1)
 		span.setMeta(ext.Pid, t.pid)
 		if t.hostname != "" {
 			span.setMeta(keyHostname, t.hostname)
+		}
+		if id := getContainerID(); id != "" {
+			span.setMeta(keyContainerID, id)
 		}
 		if _, ok := opts.Tags[ext.ServiceName]; !ok && t.config.runtimeMetrics {
 			// this is a root span in the global service; runtime metrics should
@@ -302,6 +298,7 @@ func (t *tracer) Stop() {
 	default:
 		t.exitChan <- struct{}{}
 		<-t.stopped
+		t.wg.Wait()
 	}
 }
 
@@ -316,39 +313,40 @@ func (t *tracer) Extract(carrier interface{}) (ddtrace.SpanContext, error) {
 }
 
 // flush will push any currently buffered traces to the server.
-func (t *tracer) flushPayload() {
+func (t *tracer) flush() {
 	if t.payload.itemCount() == 0 {
 		return
 	}
-	size, count := t.payload.size(), t.payload.itemCount()
-	log.Debug("Sending payload: size: %d traces: %d\n", size, count)
-	rc, err := t.config.transport.send(t.payload)
-	if err != nil {
-		log.Error("lost %d traces: %v", count, err)
-	}
-	if err == nil {
-		t.prioritySampling.readRatesJSON(rc) // TODO: handle error?
-	}
-	t.payload.reset()
+	t.climit <- struct{}{}
+	t.wg.Add(1)
+	go func(p *payload) {
+		defer func() {
+			<-t.climit
+			t.wg.Done()
+		}()
+		size, count := p.size(), p.itemCount()
+		log.Debug("Sending payload: size: %d spans: %d\n", size, count)
+		rc, err := t.config.transport.send(p)
+		if err != nil {
+			log.Error("lost %d spans: %v", count, err)
+		}
+		if err == nil {
+			t.prioritySampling.readRatesJSON(rc) // TODO: handle error?
+		}
+	}(t.payload)
+	t.payload = newPayload()
 }
 
-// pushPayload pushes the trace onto the payload. If the payload becomes
+// addToPayload pushes the span onto the payload. If the payload becomes
 // larger than the threshold as a result, it sends a flush request.
-func (t *tracer) pushPayload(trace []*span) {
-	if err := t.payload.push(trace); err != nil {
+func (t *tracer) addToPayload(s *span) {
+	if err := t.payload.push(s); err != nil {
 		log.Error("error encoding msgpack: %v", err)
 	}
+	// TODO: explore using a sync.Pool of spans
 	if t.payload.size() > payloadSizeLimit {
 		// getting large
-		select {
-		case t.flushChan <- nil:
-		default:
-			// flush already queued
-		}
-	}
-	if t.syncPush != nil {
-		// only in tests
-		t.syncPush <- struct{}{}
+		t.flush()
 	}
 }
 

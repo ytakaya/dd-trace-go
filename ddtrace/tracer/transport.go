@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/DataDog/dd-trace-go.v1/internal/version"
@@ -43,8 +44,7 @@ const (
 	defaultHostname    = "localhost"
 	defaultPort        = "8126"
 	defaultAddress     = defaultHostname + ":" + defaultPort
-	defaultHTTPTimeout = time.Second             // defines the current timeout before giving up with the send process
-	traceCountHeader   = "X-Datadog-Trace-Count" // header containing the number of traces in the payload
+	defaultHTTPTimeout = time.Second // defines the current timeout before giving up with the send process
 )
 
 // transport is an interface for span submission to the agent.
@@ -92,15 +92,8 @@ func newHTTPTransport(addr string, roundTripper http.RoundTripper) *httpTranspor
 		"Datadog-Meta-Tracer-Version":   version.Tag,
 		"Content-Type":                  "application/msgpack",
 	}
-	f, err := os.Open("/proc/self/cgroup")
-	if err == nil {
-		if id, ok := readContainerID(f); ok {
-			defaultHeaders["Datadog-Container-ID"] = id
-		}
-		f.Close()
-	}
 	return &httpTransport{
-		traceURL: fmt.Sprintf("http://%s/v0.4/traces", resolveAddr(addr)),
+		traceURL: fmt.Sprintf("http://%s/x/v1/spans", resolveAddr(addr)),
 		client: &http.Client{
 			Transport: roundTripper,
 			Timeout:   defaultHTTPTimeout,
@@ -115,6 +108,27 @@ var (
 	// expContainerID matches contained IDs and sources. Source: https://github.com/Qard/container-info/blob/master/index.js
 	expContainerID = regexp.MustCompile(`([0-9a-f]{8}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{12}|[0-9a-f]{64})(?:.scope)?$`)
 )
+
+var (
+	containerID      string
+	getContainerOnce sync.Once
+)
+
+// getContainerID returns the container ID of the current machine or an empty string.
+func getContainerID() string {
+	getContainerOnce.Do(func() {
+		f, err := os.Open("/proc/self/cgroup")
+		if err == nil {
+			defer f.Close()
+			if id, ok := readContainerID(f); ok {
+				containerID = id
+			} else {
+				containerID = ""
+			}
+		}
+	})
+	return containerID
+}
 
 // readContainerID finds the first container ID reading from r and returns it.
 func readContainerID(r io.Reader) (id string, ok bool) {
@@ -140,12 +154,13 @@ func (t *httpTransport) send(p *payload) (body io.ReadCloser, err error) {
 	for header, value := range t.headers {
 		req.Header.Set(header, value)
 	}
-	req.Header.Set(traceCountHeader, strconv.Itoa(p.itemCount()))
 	req.Header.Set("Content-Length", strconv.Itoa(p.size()))
 	response, err := t.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	// callers wanting to re-use the body must wait for the Close call to occur. See #475 and
+	// and https://github.com/golang/go/blob/go1.12/src/net/http/client.go#L135-L137
 	p.waitClose()
 	if code := response.StatusCode; code >= 400 {
 		// error, check the body for context information and

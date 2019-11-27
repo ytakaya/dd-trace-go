@@ -198,7 +198,7 @@ func TestTextMapPropagatorInjectExtract(t *testing.T) {
 	assert.Equal(xctx.traceID, ctx.traceID)
 	assert.Equal(xctx.spanID, ctx.spanID)
 	assert.Equal(xctx.baggage, ctx.baggage)
-	assert.Equal(xctx.trace.priority, ctx.trace.priority)
+	assert.Equal(xctx.priority, ctx.priority)
 }
 
 func TestB3(t *testing.T) {
