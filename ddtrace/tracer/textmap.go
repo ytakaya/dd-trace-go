@@ -219,8 +219,8 @@ func (p *propagator) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 	// propagate the TraceID and the current active SpanID
 	writer.Set(p.cfg.TraceHeader, strconv.FormatUint(ctx.traceID, 10))
 	writer.Set(p.cfg.ParentHeader, strconv.FormatUint(ctx.spanID, 10))
-	if ctx.hasSamplingPriority() {
-		writer.Set(p.cfg.PriorityHeader, strconv.Itoa(ctx.samplingPriority()))
+	if prio, ok := ctx.samplingPriority(); ok {
+		writer.Set(p.cfg.PriorityHeader, strconv.Itoa(prio))
 	}
 	if ctx.origin != "" {
 		writer.Set(originHeader, ctx.origin)
@@ -307,8 +307,8 @@ func (*propagatorB3) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 	}
 	writer.Set(b3TraceIDHeader, strconv.FormatUint(ctx.traceID, 16))
 	writer.Set(b3SpanIDHeader, strconv.FormatUint(ctx.spanID, 16))
-	if ctx.hasSamplingPriority() {
-		if ctx.samplingPriority() >= ext.PriorityAutoKeep {
+	if p, ok := ctx.samplingPriority(); ok {
+		if p >= ext.PriorityAutoKeep {
 			writer.Set(b3SampledHeader, "1")
 		} else {
 			writer.Set(b3SampledHeader, "0")

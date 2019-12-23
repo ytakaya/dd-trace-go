@@ -78,21 +78,21 @@ func (c *spanContext) ForeachBaggageItem(handler func(k, v string) bool) {
 }
 
 func (c *spanContext) setSamplingPriority(p int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.priority == nil {
 		c.priority = new(float64)
 	}
 	*c.priority = float64(p)
 }
 
-func (c *spanContext) samplingPriority() int {
+func (c *spanContext) samplingPriority() (p int, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.priority == nil {
-		return 0
+		return 0, false
 	}
-	return int(*c.priority)
-}
-
-func (c *spanContext) hasSamplingPriority() bool {
-	return c.priority != nil
+	return int(*c.priority), true
 }
 
 func (c *spanContext) setBaggageItem(key, val string) {

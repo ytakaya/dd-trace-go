@@ -262,8 +262,9 @@ func TestB3(t *testing.T) {
 
 		assert.Equal(sctx.traceID, uint64(1))
 		assert.Equal(sctx.spanID, uint64(1))
-		assert.True(sctx.hasSamplingPriority())
-		assert.Equal(sctx.samplingPriority(), 1)
+		p, ok := sctx.samplingPriority()
+		assert.True(ok)
+		assert.Equal(p, 1)
 
 		ddHeaders := TextMapCarrier(map[string]string{
 			DefaultTraceIDHeader:  "2",
@@ -278,7 +279,9 @@ func TestB3(t *testing.T) {
 
 		assert.Equal(sctx.traceID, uint64(2))
 		assert.Equal(sctx.spanID, uint64(2))
-		assert.True(sctx.hasSamplingPriority())
-		assert.Equal(sctx.samplingPriority(), 2)
+
+		p, ok = sctx.samplingPriority()
+		assert.True(ok)
+		assert.Equal(p, 2)
 	})
 }
