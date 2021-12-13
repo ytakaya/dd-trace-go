@@ -240,6 +240,7 @@ func TestTracerStartSpan(t *testing.T) {
 			ext.PriorityAutoReject,
 			ext.PriorityAutoKeep,
 		}, span.Metrics[keySamplingPriority])
+		assert.Equal("dHJhY2VyLnRlc3Q|1|1|1.0000", span.Meta["_dd.p.upstream_services"])
 		// A span is not measured unless made so specifically
 		_, ok := span.Meta[keyMeasured]
 		assert.False(ok)
@@ -251,6 +252,7 @@ func TestTracerStartSpan(t *testing.T) {
 		tracer := newTracer()
 		span := tracer.StartSpan("web.request", Tag(ext.SamplingPriority, ext.PriorityUserKeep)).(*span)
 		assert.Equal(t, float64(ext.PriorityUserKeep), span.Metrics[keySamplingPriority])
+		assert.Equal(t, "dHJhY2VyLnRlc3Q|2|4|0.0000", span.Meta["_dd.p.upstream_services"])
 	})
 
 	t.Run("name", func(t *testing.T) {
@@ -287,6 +289,7 @@ func TestSamplingDecision(t *testing.T) {
 		child.Finish()
 		span.Finish()
 		assert.Equal(t, float64(ext.PriorityAutoReject), span.Metrics[keySamplingPriority])
+		assert.Equal(t, "dGVzdF9zZXJ2aWNl|0|1|0.0000", span.Meta["_dd.p.upstream_services"])
 		assert.Equal(t, decisionKeep, span.context.trace.samplingDecision)
 	})
 
@@ -301,6 +304,7 @@ func TestSamplingDecision(t *testing.T) {
 		child.Finish()
 		span.Finish()
 		assert.Equal(t, float64(ext.PriorityAutoReject), span.Metrics[keySamplingPriority])
+		assert.Equal(t, "dGVzdF9zZXJ2aWNl|0|1|0.0000", span.Meta["_dd.p.upstream_services"])
 		assert.Equal(t, decisionNone, span.context.trace.samplingDecision)
 	})
 
@@ -316,6 +320,7 @@ func TestSamplingDecision(t *testing.T) {
 		child.Finish()
 		span.Finish()
 		assert.Equal(t, float64(ext.PriorityAutoReject), span.Metrics[keySamplingPriority])
+		assert.Equal(t, "dGVzdF9zZXJ2aWNl|0|1|0.0000", span.Meta["_dd.p.upstream_services"])
 		assert.Equal(t, decisionKeep, span.context.trace.samplingDecision)
 	})
 
@@ -332,6 +337,9 @@ func TestSamplingDecision(t *testing.T) {
 		child.Finish()
 		span.Finish()
 		assert.Equal(t, float64(ext.PriorityAutoReject), span.Metrics[keySamplingPriority])
+		// this trace won't be sent to the agent,
+		// therefore not necessary to populate "_dd.p.upstream_services"
+		assert.Equal(t, "", span.Meta["_dd.p.upstream_services"])
 		assert.Equal(t, decisionDrop, span.context.trace.samplingDecision)
 	})
 }
@@ -524,7 +532,9 @@ func TestTracerSamplingPriorityPropagation(t *testing.T) {
 	root := tracer.StartSpan("web.request", Tag(ext.SamplingPriority, 2)).(*span)
 	child := tracer.StartSpan("db.query", ChildOf(root.Context())).(*span)
 	assert.EqualValues(2, root.Metrics[keySamplingPriority])
+	assert.Equal("dHJhY2VyLnRlc3Q|2|4|0.0000", root.Meta["_dd.p.upstream_services"])
 	assert.EqualValues(2, child.Metrics[keySamplingPriority])
+	assert.Equal("", child.Meta["_dd.p.upstream_services"])
 	assert.EqualValues(2., *root.context.trace.priority)
 	assert.EqualValues(2., *child.context.trace.priority)
 }
@@ -536,9 +546,13 @@ func TestTracerSamplingPriorityEmptySpanCtx(t *testing.T) {
 	spanCtx := &spanContext{
 		traceID: root.context.TraceID(),
 		spanID:  root.context.SpanID(),
+		tags: map[string]string{
+			"_dd.p.upstream_services": "previous",
+		},
 	}
 	child := tracer.StartSpan("db.query", ChildOf(spanCtx)).(*span)
 	assert.EqualValues(1, child.Metrics[keySamplingPriority])
+	assert.Equal("previous,dHJhY2VyLnRlc3Q|1|1|1.0000", child.Meta["_dd.p.upstream_services"])
 }
 
 func TestTracerBaggageImmutability(t *testing.T) {
@@ -723,6 +737,7 @@ func TestTracerPrioritySampler(t *testing.T) {
 	s := tr.newEnvSpan("pylons", "")
 	assert.Equal(1., s.Metrics[keySamplingPriorityRate])
 	assert.Equal(1., s.Metrics[keySamplingPriority])
+	assert.Equal("cHlsb25z|1|1|1.0000", s.Meta["_dd.p.upstream_services"])
 	p, ok := s.context.samplingPriority()
 	assert.True(ok)
 	assert.EqualValues(p, s.Metrics[keySamplingPriority])
@@ -758,6 +773,7 @@ func TestTracerPrioritySampler(t *testing.T) {
 		s := tr.newEnvSpan(tt.service, tt.env)
 		assert.Equal(tt.rate, s.Metrics[keySamplingPriorityRate], strconv.Itoa(i))
 		prio, ok := s.Metrics[keySamplingPriority]
+		assert.Equal(b64Encode(tt.service)+"|"+strconv.Itoa(int(prio))+"|1|"+strconv.FormatFloat(tt.rate, 'f', 4, 64), s.Meta["_dd.p.upstream_services"])
 		assert.True(ok)
 		assert.Contains([]float64{0, 1}, prio)
 		p, ok := s.context.samplingPriority()

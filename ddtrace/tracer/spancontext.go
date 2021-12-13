@@ -236,9 +236,6 @@ func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName,
 	if t.priority == nil {
 		t.priority = new(float64)
 	}
-	if *t.priority == float64(p) {
-		return
-	}
 	*t.priority = float64(p)
 	if sampler != samplerNone {
 		encodedService := b64Encode(spn.Service)
