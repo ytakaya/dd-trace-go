@@ -73,7 +73,7 @@ func newSpanContext(span *span, parent *spanContext) *spanContext {
 			for k, v := range parent.tags {
 				span.setMeta(k, v)
 			}
-			context.trace.upstreamServices = span.Meta["_dd.p.upstream_services"]
+			context.trace.upstreamServices = span.Meta[keyUpstreamServices]
 		}
 	}
 	// put span in context's trace
@@ -246,9 +246,9 @@ func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName,
 			defer t.spans[0].Unlock()
 		}
 		if len(t.upstreamServices) > 0 {
-			t.setTag("_dd.p.upstream_services", t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
+			t.setTag(keyUpstreamServices, t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		} else {
-			t.setTag("_dd.p.upstream_services", encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
+			t.setTag(keyUpstreamServices, encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		}
 	}
 }
