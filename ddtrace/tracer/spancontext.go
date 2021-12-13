@@ -38,7 +38,7 @@ type spanContext struct {
 	baggage    map[string]string
 	hasBaggage int32  // atomic int for quick checking presence of baggage. 0 indicates no baggage, otherwise baggage exists.
 	origin     string // e.g. "synthetics"
-	tags       *map[string]string
+	tags       map[string]string
 }
 
 // newSpanContext creates a new SpanContext to serve as context for the given
@@ -67,10 +67,10 @@ func newSpanContext(span *span, parent *spanContext) *spanContext {
 	if context.trace.root == nil {
 		// first span in the trace can safely be assumed to be the root
 		context.trace.root = span
-		if parent != nil && parent.span == nil && parent.tags != nil {
+		if parent != nil && parent.span == nil {
 			// the parent is remote, if tags received from the parent
 			// they will be put in the first span (the root) of the chunk
-			for k, v := range *parent.tags {
+			for k, v := range parent.tags {
 				span.setMeta(k, v)
 			}
 			context.trace.upstreamServices = span.Meta["_dd.p.upstream_services"]
@@ -101,11 +101,11 @@ func (c *spanContext) ForeachBaggageItem(handler func(k, v string) bool) {
 	}
 }
 
-func (c *spanContext) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
+func (c *spanContext) setSamplingPriority(spn *span, p int, sampler samplerName, rate float64) {
 	if c.trace == nil {
 		c.trace = newTrace()
 	}
-	c.trace.setSamplingPriority(service, p, sampler, rate)
+	c.trace.setSamplingPriority(spn, p, sampler, rate)
 }
 
 func (c *spanContext) samplingPriority() (p int, ok bool) {
@@ -202,10 +202,10 @@ func (t *trace) samplingPriority() (p int, ok bool) {
 	return t.samplingPriorityLocked()
 }
 
-func (t *trace) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
+func (t *trace) setSamplingPriority(spn *span, p int, sampler samplerName, rate float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.setSamplingPriorityLocked(service, p, sampler, rate)
+	t.setSamplingPriorityLocked(spn, p, sampler, rate)
 }
 
 func (t *trace) keep() {
@@ -224,7 +224,7 @@ func (t *trace) setTag(key, value string) {
 	t.spans[0].setMeta(key, value)
 }
 
-func (t *trace) setSamplingPriorityLocked(service string, p int, sampler samplerName, rate float64) {
+func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName, rate float64) {
 	if t.locked {
 		return
 	}
@@ -236,9 +236,18 @@ func (t *trace) setSamplingPriorityLocked(service string, p int, sampler sampler
 	if t.priority == nil {
 		t.priority = new(float64)
 	}
+	if *t.priority == float64(p) {
+		return
+	}
 	*t.priority = float64(p)
 	if sampler != samplerNone {
-		encodedService := b64Encode(service)
+		encodedService := b64Encode(spn.Service)
+		if len(t.spans) > 0 && t.spans[0] != spn {
+			// `t.setTag` sets tags in the first span until we adapt the new payload format
+			// ref: https://github.com/DataDog/datadog-agent/blob/ca5556d69ab720c9078fed0ed63e784c970fd732/pkg/trace/pb/tracer_payload.proto#L17
+			t.spans[0].Lock()
+			defer t.spans[0].Unlock()
+		}
 		if len(t.upstreamServices) > 0 {
 			t.setTag("_dd.p.upstream_services", t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		} else {
@@ -268,7 +277,7 @@ func (t *trace) push(sp *span) {
 	}
 	if v, ok := sp.Metrics[keySamplingPriority]; ok {
 		// TODO: this can be removed, it looks it's noop.
-		t.setSamplingPriorityLocked(sp.Service, int(v), samplerNone, 0)
+		t.setSamplingPriorityLocked(sp, int(v), samplerNone, 0)
 	}
 	t.spans = append(t.spans, sp)
 	if haveTracer {

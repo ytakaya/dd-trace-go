@@ -296,7 +296,7 @@ func (p *propagator) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority("", priority, samplerNone, 0)
+			ctx.setSamplingPriority(nil, priority, samplerNone, 0)
 		case originHeader:
 			ctx.origin = v
 		case traceTagsHeader:
@@ -389,7 +389,7 @@ func (*propagatorB3) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority("", priority, samplerNone, 0)
+			ctx.setSamplingPriority(nil, priority, samplerNone, 0)
 		default:
 		}
 		return nil

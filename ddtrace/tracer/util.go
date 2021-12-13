@@ -86,7 +86,7 @@ func isValidPropagatableTraceTag(k, v string) error {
 	return nil
 }
 
-func parsePropagatableTraceTags(s string) (*map[string]string, error) {
+func parsePropagatableTraceTags(s string) (map[string]string, error) {
 	if len(s) == 0 {
 		return nil, nil
 	}
@@ -113,7 +113,7 @@ func parsePropagatableTraceTags(s string) (*map[string]string, error) {
 		return nil, fmt.Errorf("invalid format")
 	}
 	tags[key] = s[start:]
-	return &tags, nil
+	return tags, nil
 }
 
 var b64 = base64.StdEncoding.WithPadding(base64.NoPadding)

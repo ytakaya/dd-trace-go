@@ -166,7 +166,7 @@ func (s *span) setSamplingPriorityLocked(priority int, sampler samplerName, rate
 		return
 	}
 	s.setMetric(keySamplingPriority, float64(priority))
-	s.context.setSamplingPriority(s.Service, priority, sampler, rate)
+	s.context.setSamplingPriority(s, priority, sampler, rate)
 }
 
 // setTagError sets the error tag. It accounts for various valid scenarios.
