@@ -90,6 +90,9 @@ const (
 // It is used with the Synthetics product and usually has the value "synthetics".
 const originHeader = "x-datadog-origin"
 
+// traceTagsHeader holds the propagated trace tags
+const traceTagsHeader = "x-datadog-tags"
+
 // PropagatorConfig defines the configuration for initializing a propagator.
 type PropagatorConfig struct {
 	// BaggagePrefix specifies the prefix that will be used to store baggage
@@ -232,6 +235,34 @@ func (p *propagator) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 	for k, v := range ctx.baggage {
 		writer.Set(p.cfg.BaggagePrefix+k, v)
 	}
+	// propagate trace tags
+	var sb strings.Builder
+	if ctx.trace != nil && len(ctx.trace.spans) > 0 {
+		ctx.trace.spans[0].RLock()
+		for k, v := range ctx.trace.spans[0].Meta {
+			if !strings.HasPrefix(k, "_dd.p.") {
+				continue
+			}
+			if sb.Len()+len(k)+len(v) > 512 {
+				log.Warn("will not inject tag '%s' (err: won't fit in the header), consider to increase the limit\n", k)
+				continue
+			}
+			if err := isValidPropagatableTraceTag(k, v); err != nil {
+				log.Warn("will not inject tag '%s' (err: %s)\n", k, err.Error())
+				continue
+			}
+			if sb.Len() > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(k)
+			sb.WriteByte('=')
+			sb.WriteString(v)
+		}
+		ctx.trace.spans[0].RUnlock()
+		if sb.Len() > 0 {
+			writer.Set(traceTagsHeader, sb.String())
+		}
+	}
 	return nil
 }
 
@@ -265,9 +296,14 @@ func (p *propagator) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority(priority)
+			ctx.setSamplingPriority("", priority, samplerNone, 0)
 		case originHeader:
 			ctx.origin = v
+		case traceTagsHeader:
+			ctx.tags, err = parsePropagatableTraceTags(v)
+			if err != nil {
+				log.Warn("did not extract trace tags (err: %s)", err.Error())
+			}
 		default:
 			if strings.HasPrefix(key, p.cfg.BaggagePrefix) {
 				ctx.setBaggageItem(strings.TrimPrefix(key, p.cfg.BaggagePrefix), v)
@@ -353,7 +389,7 @@ func (*propagatorB3) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority(priority)
+			ctx.setSamplingPriority("", priority, samplerNone, 0)
 		default:
 		}
 		return nil

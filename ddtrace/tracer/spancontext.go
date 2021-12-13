@@ -6,6 +6,7 @@
 package tracer
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -37,6 +38,7 @@ type spanContext struct {
 	baggage    map[string]string
 	hasBaggage int32  // atomic int for quick checking presence of baggage. 0 indicates no baggage, otherwise baggage exists.
 	origin     string // e.g. "synthetics"
+	tags       *map[string]string
 }
 
 // newSpanContext creates a new SpanContext to serve as context for the given
@@ -65,6 +67,14 @@ func newSpanContext(span *span, parent *spanContext) *spanContext {
 	if context.trace.root == nil {
 		// first span in the trace can safely be assumed to be the root
 		context.trace.root = span
+		if parent != nil && parent.span == nil && parent.tags != nil {
+			// the parent is remote, if tags received from the parent
+			// they will be put in the first span (the root) of the chunk
+			for k, v := range *parent.tags {
+				span.setMeta(k, v)
+			}
+			context.trace.upstreamServices = span.Meta["_dd.p.upstream_services"]
+		}
 	}
 	// put span in context's trace
 	context.trace.push(span)
@@ -91,11 +101,11 @@ func (c *spanContext) ForeachBaggageItem(handler func(k, v string) bool) {
 	}
 }
 
-func (c *spanContext) setSamplingPriority(p int) {
+func (c *spanContext) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
 	if c.trace == nil {
 		c.trace = newTrace()
 	}
-	c.trace.setSamplingPriority(float64(p))
+	c.trace.setSamplingPriority(service, p, sampler, rate)
 }
 
 func (c *spanContext) samplingPriority() (p int, ok bool) {
@@ -146,6 +156,7 @@ const (
 type trace struct {
 	mu               sync.RWMutex     // guards below fields
 	spans            []*span          // all the spans that are part of this trace
+	upstreamServices string           // _dd.p.upstream_services value from the upstream service
 	finished         int              // the number of finished spans
 	full             bool             // signifies that the span buffer is full
 	priority         *float64         // sampling priority
@@ -191,10 +202,10 @@ func (t *trace) samplingPriority() (p int, ok bool) {
 	return t.samplingPriorityLocked()
 }
 
-func (t *trace) setSamplingPriority(p float64) {
+func (t *trace) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.setSamplingPriorityLocked(p)
+	t.setSamplingPriorityLocked(service, p, sampler, rate)
 }
 
 func (t *trace) keep() {
@@ -205,7 +216,15 @@ func (t *trace) drop() {
 	atomic.CompareAndSwapInt64((*int64)(&t.samplingDecision), int64(decisionNone), int64(decisionDrop))
 }
 
-func (t *trace) setSamplingPriorityLocked(p float64) {
+func (t *trace) setTag(key, value string) {
+	if len(t.spans) == 0 {
+		return
+	}
+	// TODO: t.spans[0] needs to be locked, but if setSamplingPriority is coming from t.spans[0] then it shouldn't
+	t.spans[0].setMeta(key, value)
+}
+
+func (t *trace) setSamplingPriorityLocked(service string, p int, sampler samplerName, rate float64) {
 	if t.locked {
 		return
 	}
@@ -217,7 +236,15 @@ func (t *trace) setSamplingPriorityLocked(p float64) {
 	if t.priority == nil {
 		t.priority = new(float64)
 	}
-	*t.priority = p
+	*t.priority = float64(p)
+	if sampler != samplerNone {
+		encodedService := b64Encode(service)
+		if len(t.upstreamServices) > 0 {
+			t.setTag("_dd.p.upstream_services", t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
+		} else {
+			t.setTag("_dd.p.upstream_services", encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
+		}
+	}
 }
 
 // push pushes a new span into the trace. If the buffer is full, it returns
@@ -240,7 +267,8 @@ func (t *trace) push(sp *span) {
 		return
 	}
 	if v, ok := sp.Metrics[keySamplingPriority]; ok {
-		t.setSamplingPriorityLocked(v)
+		// TODO: this can be removed, it looks it's noop.
+		t.setSamplingPriorityLocked(sp.Service, int(v), samplerNone, 0)
 	}
 	t.spans = append(t.spans, sp)
 	if haveTracer {

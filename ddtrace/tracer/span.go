@@ -148,6 +148,27 @@ func (s *span) SetTag(key string, value interface{}) {
 	s.setMeta(key, fmt.Sprint(value))
 }
 
+// setSamplingPriority locks then span, then updates the sampling priority.
+// It also updates the trace's sampling priority.
+func (s *span) setSamplingPriority(priority int, sampler samplerName, rate float64) {
+	s.Lock()
+	defer s.Unlock()
+	s.setSamplingPriorityLocked(priority, sampler, rate)
+}
+
+// setSamplingPriorityLocked updates the sampling priority.
+// It also updates the trace's sampling priority.
+func (s *span) setSamplingPriorityLocked(priority int, sampler samplerName, rate float64) {
+	// We don't lock spans when flushing, so we could have a data race when
+	// modifying a span as it's being flushed. This protects us against that
+	// race, since spans are marked `finished` before we flush them.
+	if s.finished {
+		return
+	}
+	s.setMetric(keySamplingPriority, float64(priority))
+	s.context.setSamplingPriority(s.Service, priority, sampler, rate)
+}
+
 // setTagError sets the error tag. It accounts for various valid scenarios.
 // This method is not safe for concurrent use.
 func (s *span) setTagError(value interface{}, cfg errorConfig) {
@@ -266,11 +287,11 @@ func (s *span) setTagBool(key string, v bool) {
 		}
 	case ext.ManualDrop:
 		if v {
-			s.setMetric(ext.SamplingPriority, ext.PriorityUserReject)
+			s.setSamplingPriorityLocked(ext.PriorityUserReject, samplerManual, 0)
 		}
 	case ext.ManualKeep:
 		if v {
-			s.setMetric(ext.SamplingPriority, ext.PriorityUserKeep)
+			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerManual, 0)
 		}
 	default:
 		if v {
@@ -289,10 +310,14 @@ func (s *span) setMetric(key string, v float64) {
 	}
 	delete(s.Meta, key)
 	switch key {
+	case ext.ManualKeep:
+		if v == float64(samplerAppSec) {
+			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerAppSec, 0)
+		}
 	case ext.SamplingPriority:
-		// setting sampling priority per spec
-		s.Metrics[keySamplingPriority] = v
-		s.context.setSamplingPriority(int(v))
+		// ext.SamplingPriority is deprecated in favor of ext.ManualKeep and ext.ManualDrop.
+		// We have it here for backward compatibility.
+		s.setSamplingPriorityLocked(int(v), samplerManual, 0)
 	default:
 		s.Metrics[key] = v
 	}
