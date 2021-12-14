@@ -203,6 +203,12 @@ func (t *trace) samplingPriority() (p int, ok bool) {
 }
 
 func (t *trace) setSamplingPriority(spn *span, p int, sampler samplerName, rate float64) {
+	if len(t.spans) > 0 && t.spans[0] != spn {
+		// `t.setTag` sets tags in the first span until we adapt the new payload format
+		// ref: https://github.com/DataDog/datadog-agent/blob/ca5556d69ab720c9078fed0ed63e784c970fd732/pkg/trace/pb/tracer_payload.proto#L17
+		t.spans[0].Lock()
+		defer t.spans[0].Unlock()
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.setSamplingPriorityLocked(spn, p, sampler, rate)
@@ -239,12 +245,6 @@ func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName,
 	*t.priority = float64(p)
 	if sampler != samplerNone {
 		encodedService := b64Encode(spn.Service)
-		if len(t.spans) > 0 && t.spans[0] != spn {
-			// `t.setTag` sets tags in the first span until we adapt the new payload format
-			// ref: https://github.com/DataDog/datadog-agent/blob/ca5556d69ab720c9078fed0ed63e784c970fd732/pkg/trace/pb/tracer_payload.proto#L17
-			t.spans[0].Lock()
-			defer t.spans[0].Unlock()
-		}
 		if len(t.upstreamServices) > 0 {
 			t.setTag(keyUpstreamServices, t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		} else {
