@@ -246,7 +246,7 @@ func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName,
 	if sampler != samplerNone {
 		encodedService := b64Encode(spn.Service)
 		if len(t.upstreamServices) > 0 {
-			t.setTag(keyUpstreamServices, t.upstreamServices+","+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
+			t.setTag(keyUpstreamServices, t.upstreamServices+";"+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		} else {
 			t.setTag(keyUpstreamServices, encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		}

@@ -552,7 +552,7 @@ func TestTracerSamplingPriorityEmptySpanCtx(t *testing.T) {
 	}
 	child := tracer.StartSpan("db.query", ChildOf(spanCtx)).(*span)
 	assert.EqualValues(1, child.Metrics[keySamplingPriority])
-	assert.Equal("previous,dHJhY2VyLnRlc3Q|1|1|1.0000", child.Meta[keyUpstreamServices])
+	assert.Equal("previous;dHJhY2VyLnRlc3Q|1|1|1.0000", child.Meta[keyUpstreamServices])
 }
 
 func TestTracerTagsPropagation(t *testing.T) {
@@ -584,7 +584,7 @@ func TestTracerDDUpstreamServicesManualKeep(t *testing.T) {
 	child := tracer.StartSpan("db.query", ChildOf(spanCtx)).(*span)
 	grandChild := tracer.StartSpan("db.query", ChildOf(child.Context())).(*span)
 	grandChild.SetTag(ext.ManualKeep, true)
-	assert.Equal("previous,dHJhY2VyLnRlc3Q|2|4|0.0000", child.Meta[keyUpstreamServices])
+	assert.Equal("previous;dHJhY2VyLnRlc3Q|2|4|0.0000", child.Meta[keyUpstreamServices])
 }
 
 func TestTracerBaggageImmutability(t *testing.T) {
