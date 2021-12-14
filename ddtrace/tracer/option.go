@@ -38,6 +38,9 @@ var (
 	// defaultSocketDSD specifies the socket path to use for connecting to the statsd server.
 	// Replaced in tests
 	defaultSocketDSD = "/var/run/datadog/dsd.socket"
+
+	// defaultMaxTagsHeaderLen specifies the default maximum length of trace tags header value.
+	defaultMaxTagsHeaderLen = 512
 )
 
 // config holds the tracer configuration.
@@ -131,6 +134,10 @@ type config struct {
 
 	// enabled reports whether tracing is enabled.
 	enabled bool
+
+	// maxTagsHeaderLen specifies the maximum length of trace tags header value.
+	// It defaults to defaultMaxTagsHeaderLen.
+	maxTagsHeaderLen int
 }
 
 // HasFeature reports whether feature f is enabled.
@@ -223,6 +230,7 @@ func newConfig(opts ...StartOption) *config {
 	// TODO(fg): set these to true before going GA with this.
 	c.profilerEndpoints = internal.BoolEnv(traceprof.EndpointEnvVar, false)
 	c.profilerHotspots = internal.BoolEnv(traceprof.CodeHotspotsEnvVar, false)
+	c.maxTagsHeaderLen = internal.IntEnv("DD_MAX_TAGS_HEADER_LEN", defaultMaxTagsHeaderLen)
 
 	for _, fn := range opts {
 		fn(c)
@@ -256,7 +264,9 @@ func newConfig(opts ...StartOption) *config {
 		c.transport = newHTTPTransport(c.agentAddr, c.httpClient)
 	}
 	if c.propagator == nil {
-		c.propagator = NewPropagator(nil)
+		c.propagator = NewPropagator(&PropagatorConfig{
+			MaxTagsHeaderLen: c.maxTagsHeaderLen,
+		})
 	}
 	if c.logger != nil {
 		log.UseLogger(c.logger)
@@ -696,6 +706,13 @@ func WithProfilerCodeHotspots(enabled bool) StartOption {
 func WithProfilerEndpoints(enabled bool) StartOption {
 	return func(c *config) {
 		c.profilerEndpoints = enabled
+	}
+}
+
+// WithMaxTagsHeaderLen allows specifying the maximum length of trace tags header value.
+func WithMaxTagsHeaderLen(len int) StartOption {
+	return func(c *config) {
+		c.maxTagsHeaderLen = len
 	}
 }
 

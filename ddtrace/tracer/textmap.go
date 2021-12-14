@@ -110,6 +110,9 @@ type PropagatorConfig struct {
 	// PriorityHeader specifies the map key that will be used to store the sampling priority.
 	// It deafults to DefaultPriorityHeader.
 	PriorityHeader string
+
+	// MaxTagsHeaderLen specifies the maximum length of trace tags header value.
+	MaxTagsHeaderLen int
 }
 
 // NewPropagator returns a new propagator which uses TextMap to inject
@@ -243,13 +246,14 @@ func (p *propagator) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 			if !strings.HasPrefix(k, "_dd.p.") {
 				continue
 			}
-			if sb.Len()+len(k)+len(v) > 512 {
-				log.Warn("will not inject tag '%s' (err: won't fit in the header), consider to increase the limit\n", k)
+			if err := isValidPropagatableTraceTag(k, v); err != nil {
+				log.Warn("won't propagate tag '%s' (err: %s)", k, err.Error())
 				continue
 			}
-			if err := isValidPropagatableTraceTag(k, v); err != nil {
-				log.Warn("will not inject tag '%s' (err: %s)\n", k, err.Error())
-				continue
+			if sb.Len()+len(k)+len(v) > p.cfg.MaxTagsHeaderLen {
+				sb.Reset()
+				log.Warn("won't propagate trace tags (err: max trace tags header len (%d) reached)", p.cfg.MaxTagsHeaderLen)
+				break
 			}
 			if sb.Len() > 0 {
 				sb.WriteByte(',')
