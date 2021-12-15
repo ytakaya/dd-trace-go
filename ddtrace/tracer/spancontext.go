@@ -38,7 +38,6 @@ type spanContext struct {
 	baggage    map[string]string
 	hasBaggage int32  // atomic int for quick checking presence of baggage. 0 indicates no baggage, otherwise baggage exists.
 	origin     string // e.g. "synthetics"
-	tags       map[string]string
 }
 
 // newSpanContext creates a new SpanContext to serve as context for the given
@@ -67,14 +66,6 @@ func newSpanContext(span *span, parent *spanContext) *spanContext {
 	if context.trace.root == nil {
 		// first span in the trace can safely be assumed to be the root
 		context.trace.root = span
-		if parent != nil && parent.span == nil {
-			// the parent is remote, if tags received from the parent
-			// they will be put in the first span (the root) of the chunk
-			for k, v := range parent.tags {
-				span.setMeta(k, v)
-			}
-			context.trace.upstreamServices = span.Meta[keyUpstreamServices]
-		}
 	}
 	// put span in context's trace
 	context.trace.push(span)
@@ -101,11 +92,11 @@ func (c *spanContext) ForeachBaggageItem(handler func(k, v string) bool) {
 	}
 }
 
-func (c *spanContext) setSamplingPriority(spn *span, p int, sampler samplerName, rate float64) {
+func (c *spanContext) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
 	if c.trace == nil {
 		c.trace = newTrace()
 	}
-	c.trace.setSamplingPriority(spn, p, sampler, rate)
+	c.trace.setSamplingPriority(service, p, sampler, rate)
 }
 
 func (c *spanContext) samplingPriority() (p int, ok bool) {
@@ -154,14 +145,15 @@ const (
 // priority, the root reference and a buffer of the spans which are part of the
 // trace, if these exist.
 type trace struct {
-	mu               sync.RWMutex     // guards below fields
-	spans            []*span          // all the spans that are part of this trace
-	upstreamServices string           // _dd.p.upstream_services value from the upstream service
-	finished         int              // the number of finished spans
-	full             bool             // signifies that the span buffer is full
-	priority         *float64         // sampling priority
-	locked           bool             // specifies if the sampling priority can be altered
-	samplingDecision samplingDecision // samplingDecision indicates whether to send the trace to the agent.
+	mu               sync.RWMutex      // guards below fields
+	spans            []*span           // all the spans that are part of this trace
+	tags             map[string]string // trace level tags
+	upstreamServices string            // _dd.p.upstream_services value from the upstream service
+	finished         int               // the number of finished spans
+	full             bool              // signifies that the span buffer is full
+	priority         *float64          // sampling priority
+	locked           bool              // specifies if the sampling priority can be altered
+	samplingDecision samplingDecision  // samplingDecision indicates whether to send the trace to the agent.
 
 	// root specifies the root of the trace, if known; it is nil when a span
 	// context is extracted from a carrier, at which point there are no spans in
@@ -202,16 +194,10 @@ func (t *trace) samplingPriority() (p int, ok bool) {
 	return t.samplingPriorityLocked()
 }
 
-func (t *trace) setSamplingPriority(spn *span, p int, sampler samplerName, rate float64) {
-	if len(t.spans) > 0 && t.spans[0] != spn {
-		// `t.setTag` sets tags in the first span until we adapt the new payload format
-		// ref: https://github.com/DataDog/datadog-agent/blob/ca5556d69ab720c9078fed0ed63e784c970fd732/pkg/trace/pb/tracer_payload.proto#L17
-		t.spans[0].Lock()
-		defer t.spans[0].Unlock()
-	}
+func (t *trace) setSamplingPriority(service string, p int, sampler samplerName, rate float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.setSamplingPriorityLocked(spn, p, sampler, rate)
+	t.setSamplingPriorityLocked(service, p, sampler, rate)
 }
 
 func (t *trace) keep() {
@@ -223,14 +209,13 @@ func (t *trace) drop() {
 }
 
 func (t *trace) setTag(key, value string) {
-	if len(t.spans) == 0 {
-		return
+	if t.tags == nil {
+		t.tags = make(map[string]string, 1)
 	}
-	// TODO: t.spans[0] needs to be locked, but if setSamplingPriority is coming from t.spans[0] then it shouldn't
-	t.spans[0].setMeta(key, value)
+	t.tags[key] = value
 }
 
-func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName, rate float64) {
+func (t *trace) setSamplingPriorityLocked(service string, p int, sampler samplerName, rate float64) {
 	if t.locked {
 		return
 	}
@@ -244,7 +229,7 @@ func (t *trace) setSamplingPriorityLocked(spn *span, p int, sampler samplerName,
 	}
 	*t.priority = float64(p)
 	if sampler != samplerNone {
-		encodedService := b64Encode(spn.Service)
+		encodedService := b64Encode(service)
 		if len(t.upstreamServices) > 0 {
 			t.setTag(keyUpstreamServices, t.upstreamServices+";"+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
 		} else {
@@ -274,7 +259,7 @@ func (t *trace) push(sp *span) {
 	}
 	if v, ok := sp.Metrics[keySamplingPriority]; ok {
 		// TODO: this can be removed, it looks it's noop.
-		t.setSamplingPriorityLocked(sp, int(v), samplerNone, 0)
+		t.setSamplingPriorityLocked(sp.Service, int(v), samplerNone, 0)
 	}
 	t.spans = append(t.spans, sp)
 	if haveTracer {
@@ -324,5 +309,24 @@ func (t *trace) finishedOne(s *span) {
 		}
 		return
 	}
+	t.populateTraceTags(s)
 	tr.pushTrace(t.spans)
+}
+
+// populateTraceTags puts trace tags in Meta of the first span.
+func (t *trace) populateTraceTags(s *span) {
+	if len(t.tags) == 0 {
+		return
+	}
+	if t.spans[0] != s {
+		t.spans[0].Lock()
+		defer t.spans[0].Unlock()
+	}
+	if t.spans[0].Meta == nil {
+		t.spans[0].Meta = t.tags
+		return
+	}
+	for k, v := range t.tags {
+		t.spans[0].Meta[k] = v
+	}
 }

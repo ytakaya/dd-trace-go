@@ -240,9 +240,9 @@ func (p *propagator) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 	}
 	// propagate trace tags
 	var sb strings.Builder
-	if ctx.trace != nil && len(ctx.trace.spans) > 0 {
-		ctx.trace.spans[0].RLock()
-		for k, v := range ctx.trace.spans[0].Meta {
+	if ctx.trace != nil {
+		ctx.trace.mu.RLock()
+		for k, v := range ctx.trace.tags {
 			if !strings.HasPrefix(k, "_dd.p.") {
 				continue
 			}
@@ -262,7 +262,7 @@ func (p *propagator) injectTextMap(spanCtx ddtrace.SpanContext, writer TextMapWr
 			sb.WriteByte('=')
 			sb.WriteString(v)
 		}
-		ctx.trace.spans[0].RUnlock()
+		ctx.trace.mu.RUnlock()
 		if sb.Len() > 0 {
 			writer.Set(traceTagsHeader, sb.String())
 		}
@@ -300,11 +300,15 @@ func (p *propagator) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority(nil, priority, samplerNone, 0)
+			ctx.setSamplingPriority("", priority, samplerNone, 0)
 		case originHeader:
 			ctx.origin = v
 		case traceTagsHeader:
-			ctx.tags, err = parsePropagatableTraceTags(v)
+			if ctx.trace == nil {
+				ctx.trace = newTrace()
+			}
+			ctx.trace.tags, err = parsePropagatableTraceTags(v)
+			ctx.trace.upstreamServices = ctx.trace.tags[keyUpstreamServices]
 			if err != nil {
 				log.Warn("did not extract trace tags (err: %s)", err.Error())
 			}
@@ -393,7 +397,7 @@ func (*propagatorB3) extractTextMap(reader TextMapReader) (ddtrace.SpanContext, 
 			if err != nil {
 				return ErrSpanContextCorrupted
 			}
-			ctx.setSamplingPriority(nil, priority, samplerNone, 0)
+			ctx.setSamplingPriority("", priority, samplerNone, 0)
 		default:
 		}
 		return nil

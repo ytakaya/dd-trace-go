@@ -175,8 +175,9 @@ func TestTextMapPropagatorOrigin(t *testing.T) {
 	}
 }
 
-func TestTextMapPropagatorTraceTags(t *testing.T) {
+func TestTextMapPropagatorTraceTagsWithPriority(t *testing.T) {
 	src := TextMapCarrier(map[string]string{
+		DefaultPriorityHeader: "1",
 		DefaultTraceIDHeader:  "1",
 		DefaultParentIDHeader: "1",
 		traceTagsHeader:       "hello=world,_dd.p.upstream_services=abc|1|2|3;def|4|5|6",
@@ -191,7 +192,35 @@ func TestTextMapPropagatorTraceTags(t *testing.T) {
 	assert.Equal(t, map[string]string{
 		"hello":                   "world",
 		"_dd.p.upstream_services": "abc|1|2|3;def|4|5|6",
-	}, sctx.tags)
+	}, sctx.trace.tags)
+	dst := map[string]string{}
+	err = tracer.Inject(child.Context(), TextMapCarrier(dst))
+	assert.Nil(t, err)
+	assert.Equal(t, map[string]string{
+		"x-datadog-parent-id":         strconv.Itoa(int(childSpanID)),
+		"x-datadog-trace-id":          "1",
+		"x-datadog-sampling-priority": "1",
+		"x-datadog-tags":              "_dd.p.upstream_services=abc|1|2|3;def|4|5|6",
+	}, dst)
+}
+
+func TestTextMapPropagatorTraceTagsWithoutPriority(t *testing.T) {
+	src := TextMapCarrier(map[string]string{
+		DefaultTraceIDHeader:  "1",
+		DefaultParentIDHeader: "1",
+		traceTagsHeader:       "hello=world,_dd.p.upstream_services=abc|1|2|3;def|4|5|6",
+	})
+	tracer := newTracer()
+	ctx, err := tracer.Extract(src)
+	assert.Nil(t, err)
+	sctx, ok := ctx.(*spanContext)
+	assert.True(t, ok)
+	child := tracer.StartSpan("test", ChildOf(sctx))
+	childSpanID := child.Context().(*spanContext).spanID
+	assert.Equal(t, map[string]string{
+		"hello":                   "world",
+		"_dd.p.upstream_services": "abc|1|2|3;def|4|5|6;dHJhY2VyLnRlc3Q|1|1|1.0000",
+	}, sctx.trace.tags)
 	dst := map[string]string{}
 	err = tracer.Inject(child.Context(), TextMapCarrier(dst))
 	assert.Nil(t, err)
@@ -214,7 +243,7 @@ func TestTextMapPropagatorInvalidTraceTagsHeader(t *testing.T) {
 	assert.Nil(t, err)
 	sctx, ok := ctx.(*spanContext)
 	assert.True(t, ok)
-	assert.Equal(t, map[string]string(nil), sctx.tags)
+	assert.Equal(t, map[string]string(nil), sctx.trace.tags)
 }
 
 func TestTextMapPropagatorTraceTagsTooLong(t *testing.T) {
@@ -224,6 +253,7 @@ func TestTextMapPropagatorTraceTagsTooLong(t *testing.T) {
 	}
 	traceTags := strings.Join(tags, ",")
 	src := TextMapCarrier(map[string]string{
+		DefaultPriorityHeader: "1",
 		DefaultTraceIDHeader:  "1",
 		DefaultParentIDHeader: "1",
 		traceTagsHeader:       traceTags,
@@ -235,7 +265,7 @@ func TestTextMapPropagatorTraceTagsTooLong(t *testing.T) {
 	assert.True(t, ok)
 	child := tracer.StartSpan("test", ChildOf(sctx))
 	childSpanID := child.Context().(*spanContext).spanID
-	assert.Equal(t, 100, len(sctx.tags))
+	assert.Equal(t, 100, len(sctx.trace.tags))
 	dst := map[string]string{}
 	err = tracer.Inject(child.Context(), TextMapCarrier(dst))
 	assert.Nil(t, err)
