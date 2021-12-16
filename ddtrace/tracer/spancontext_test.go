@@ -79,6 +79,21 @@ func TestAsyncSpanRace(t *testing.T) {
 				defer wg.Done()
 				select {
 				case <-done:
+					root.Finish()
+					for i := 0; i < 500; i++ {
+						for range root.(*span).Meta {
+							// this range simulates iterating over the meta map
+							// as we do when encoding msgpack upon flushing.
+						}
+					}
+					return
+				}
+			}()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case <-done:
 					for i := 0; i < 50; i++ {
 						// to trigger the bug, the child should be created after the root was finished,
 						// as its being flushed

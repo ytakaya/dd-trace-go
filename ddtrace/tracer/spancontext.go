@@ -288,6 +288,12 @@ func (t *trace) finishedOne(s *span) {
 		t.root.setMetric(keySamplingPriority, *t.priority)
 		t.locked = true
 	}
+	if len(t.spans) > 0 && s == t.spans[0] {
+		// first span in chunk finished, lock down the tags
+		for k, v := range t.tags {
+			s.setMeta(k, v)
+		}
+	}
 	if len(t.spans) != t.finished {
 		return
 	}
@@ -309,24 +315,5 @@ func (t *trace) finishedOne(s *span) {
 		}
 		return
 	}
-	t.populateTraceTags(s)
 	tr.pushTrace(t.spans)
-}
-
-// populateTraceTags puts trace tags in Meta of the first span.
-func (t *trace) populateTraceTags(s *span) {
-	if len(t.tags) == 0 {
-		return
-	}
-	if t.spans[0] != s {
-		t.spans[0].Lock()
-		defer t.spans[0].Unlock()
-	}
-	if t.spans[0].Meta == nil {
-		t.spans[0].Meta = t.tags
-		return
-	}
-	for k, v := range t.tags {
-		t.spans[0].Meta[k] = v
-	}
 }
