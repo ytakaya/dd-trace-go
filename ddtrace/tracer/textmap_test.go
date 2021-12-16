@@ -196,12 +196,11 @@ func TestTextMapPropagatorTraceTagsWithPriority(t *testing.T) {
 	dst := map[string]string{}
 	err = tracer.Inject(child.Context(), TextMapCarrier(dst))
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]string{
-		"x-datadog-parent-id":         strconv.Itoa(int(childSpanID)),
-		"x-datadog-trace-id":          "1",
-		"x-datadog-sampling-priority": "1",
-		"x-datadog-tags":              "_dd.p.upstream_services=abc|1|2|3;def|4|5|6",
-	}, dst)
+	assert.Len(t, dst, 4)
+	assert.Equal(t, strconv.Itoa(int(childSpanID)), dst["x-datadog-parent-id"])
+	assert.Equal(t, "1", dst["x-datadog-trace-id"])
+	assert.Equal(t, "1", dst["x-datadog-sampling-priority"])
+	assertTraceTags(t, "_dd.p.upstream_services=abc|1|2|3;def|4|5|6", dst["x-datadog-tags"])
 }
 
 func TestTextMapPropagatorTraceTagsWithoutPriority(t *testing.T) {
@@ -224,12 +223,11 @@ func TestTextMapPropagatorTraceTagsWithoutPriority(t *testing.T) {
 	dst := map[string]string{}
 	err = tracer.Inject(child.Context(), TextMapCarrier(dst))
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]string{
-		"x-datadog-parent-id":         strconv.Itoa(int(childSpanID)),
-		"x-datadog-trace-id":          "1",
-		"x-datadog-sampling-priority": "1",
-		"x-datadog-tags":              "_dd.p.upstream_services=abc|1|2|3;def|4|5|6;dHJhY2VyLnRlc3Q|1|1|1.0000",
-	}, dst)
+	assert.Len(t, dst, 4)
+	assert.Equal(t, strconv.Itoa(int(childSpanID)), dst["x-datadog-parent-id"])
+	assert.Equal(t, "1", dst["x-datadog-trace-id"])
+	assert.Equal(t, "1", dst["x-datadog-sampling-priority"])
+	assertTraceTags(t, "_dd.p.upstream_services=abc|1|2|3;def|4|5|6;dHJhY2VyLnRlc3Q|1|1|1.0000", dst["x-datadog-tags"])
 }
 
 func TestTextMapPropagatorInvalidTraceTagsHeader(t *testing.T) {
@@ -285,12 +283,11 @@ func TestTextMapPropagatorInvalidTraceTags(t *testing.T) {
 	dst := map[string]string{}
 	err := tracer.Inject(child.Context(), TextMapCarrier(dst))
 	assert.Nil(t, err)
-	assert.Equal(t, map[string]string{
-		"x-datadog-parent-id":         strconv.Itoa(int(childSpanID)),
-		"x-datadog-trace-id":          strconv.Itoa(int(childSpanID)),
-		"x-datadog-sampling-priority": "1",
-		"x-datadog-tags":              "_dd.p.upstream_services=dHJhY2VyLnRlc3Q|1|1|1.0000,_dd.p.hello1=world",
-	}, dst)
+	assert.Len(t, dst, 4)
+	assert.Equal(t, strconv.Itoa(int(childSpanID)), dst["x-datadog-parent-id"])
+	assert.Equal(t, strconv.Itoa(int(childSpanID)), dst["x-datadog-trace-id"])
+	assert.Equal(t, "1", dst["x-datadog-sampling-priority"])
+	assertTraceTags(t, "_dd.p.upstream_services=dHJhY2VyLnRlc3Q|1|1|1.0000,_dd.p.hello1=world", dst["x-datadog-tags"])
 }
 
 func TestTextMapPropagatorInjectExtract(t *testing.T) {
@@ -461,4 +458,8 @@ func TestB3(t *testing.T) {
 		assert.True(ok)
 		assert.Equal(2, p)
 	})
+}
+
+func assertTraceTags(t *testing.T, expected, actual string) {
+	assert.ElementsMatch(t, strings.Split(expected, ","), strings.Split(actual, ","))
 }
