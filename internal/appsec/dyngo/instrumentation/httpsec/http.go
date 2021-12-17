@@ -33,6 +33,8 @@ type (
 		Cookies map[string][]string
 		// Query corresponds to the address `server.request.query`
 		Query map[string][]string
+		// PathParams corresponds to the address `server.request.path_params`
+		PathParams map[string]string
 	}
 
 	// HandlerOperationRes is the HTTP handler operation results.
@@ -51,7 +53,7 @@ func WrapHandler(handler http.Handler, span ddtrace.Span) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var secEvent json.RawMessage
-		args := MakeHandlerOperationArgs(r, func(event json.RawMessage) {
+		args := MakeHandlerOperationArgs(r, nil, func(event json.RawMessage) {
 			secEvent = event
 		})
 		op := StartOperation(
@@ -80,7 +82,7 @@ func WrapHandler(handler http.Handler, span ddtrace.Span) http.Handler {
 // MakeHandlerOperationArgs creates the HandlerOperationArgs out of a standard
 // http.Request along with the given current span. It returns an empty structure
 // when appsec is disabled.
-func MakeHandlerOperationArgs(r *http.Request, onSecurityEvent func(event json.RawMessage)) HandlerOperationArgs {
+func MakeHandlerOperationArgs(r *http.Request, params map[string]string, onSecurityEvent func(event json.RawMessage)) HandlerOperationArgs {
 	headers := make(http.Header, len(r.Header))
 	for k, v := range r.Header {
 		k := strings.ToLower(k)
@@ -108,7 +110,8 @@ func MakeHandlerOperationArgs(r *http.Request, onSecurityEvent func(event json.R
 		Cookies:         cookies,
 		// TODO(Julio-Guerra): avoid actively parsing the query string and move to a lazy monitoring of this value with
 		//   the dynamic instrumentation of the Query() method.
-		Query: r.URL.Query(),
+		Query:      r.URL.Query(),
+		PathParams: params,
 	}
 }
 

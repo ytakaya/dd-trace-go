@@ -77,7 +77,11 @@ func withAppSec(next echo.HandlerFunc) echo.HandlerFunc {
 			return next(c)
 		}
 		var secEvent json.RawMessage
-		args := httpsec.MakeHandlerOperationArgs(req, func(event json.RawMessage) {
+		params := make(map[string]string)
+		for _, n := range c.ParamNames() {
+			params[n] = c.Param(n)
+		}
+		args := httpsec.MakeHandlerOperationArgs(req, params, func(event json.RawMessage) {
 			secEvent = event
 		})
 		op := httpsec.StartOperation(args, nil)

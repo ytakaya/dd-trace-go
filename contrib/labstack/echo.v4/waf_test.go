@@ -24,45 +24,91 @@ import (
 )
 
 func TestAppSec(t *testing.T) {
-	// Start the tracer along with the fake agent HTTP server
-	mt := mocktracer.Start()
-	defer mt.Stop()
+	t.Run("lfi", func(t *testing.T) {
+		// Start the tracer along with the fake agent HTTP server
+		mt := mocktracer.Start()
+		defer mt.Stop()
 
-	appsec.Start()
-	defer appsec.Stop()
+		appsec.Start()
+		defer appsec.Stop()
 
-	if !appsec.Enabled() {
-		t.Skip("appsec disabled")
-	}
+		if !appsec.Enabled() {
+			t.Skip("appsec disabled")
+		}
 
-	// Start and trace an HTTP server
-	e := echo.New()
-	e.Use(echotrace.Middleware())
+		// Start and trace an HTTP server
+		e := echo.New()
+		e.Use(echotrace.Middleware())
 
-	e.POST("/*tmp", func(c echo.Context) error {
-		return c.String(200, "Hello World!\n")
+		e.POST("/*tmp", func(c echo.Context) error {
+			return c.String(200, "Hello World!\n")
+		})
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		// Send an LFI attack
+		req, err := http.NewRequest("POST", srv.URL+"/../../../secret.txt", nil)
+		if err != nil {
+			panic(err)
+		}
+		res, err := srv.Client().Do(req)
+		require.NoError(t, err)
+
+		// Check that the handler was properly called
+		b, err := ioutil.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.Equal(t, "Hello World!\n", string(b))
+
+		finished := mt.FinishedSpans()
+		require.Len(t, finished, 1)
+
+		// The request should have the LFI attack attempt event (appsec rule id crs-930-100).
+		event := finished[0].Tag("_dd.appsec.json")
+		require.NotNil(t, event)
+		require.True(t, strings.Contains(event.(string), "crs-930-100"))
 	})
-	srv := httptest.NewServer(e)
-	defer srv.Close()
 
-	// Send an LFI attack
-	req, err := http.NewRequest("POST", srv.URL+"/../../../secret.txt", nil)
-	if err != nil {
-		panic(err)
-	}
-	res, err := srv.Client().Do(req)
-	require.NoError(t, err)
+	t.Run("path-params", func(t *testing.T) {
+		// Start the tracer along with the fake agent HTTP server
+		mt := mocktracer.Start()
+		defer mt.Stop()
 
-	// Check that the handler was properly called
-	b, err := ioutil.ReadAll(res.Body)
-	require.NoError(t, err)
-	require.Equal(t, "Hello World!\n", string(b))
+		appsec.Start()
+		defer appsec.Stop()
 
-	finished := mt.FinishedSpans()
-	require.Len(t, finished, 1)
+		if !appsec.Enabled() {
+			t.Skip("appsec disabled")
+		}
 
-	// The request should have the LFI attack attempt event (appsec rule id crs-930-100).
-	event := finished[0].Tag("_dd.appsec.json")
-	require.NotNil(t, event)
-	require.True(t, strings.Contains(event.(string), "crs-930-100"))
+		// Start and trace an HTTP server
+		e := echo.New()
+		e.Use(echotrace.Middleware())
+
+		e.POST("/:path", func(c echo.Context) error {
+			return c.String(200, "Hello World!\n")
+		})
+		srv := httptest.NewServer(e)
+		defer srv.Close()
+
+		// Send an LFI attack
+		req, err := http.NewRequest("POST", srv.URL+"/appscan_fingerprint", nil)
+		if err != nil {
+			panic(err)
+		}
+		res, err := srv.Client().Do(req)
+		require.NoError(t, err)
+
+		// Check that the handler was properly called
+		b, err := ioutil.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.Equal(t, "Hello World!\n", string(b))
+
+		finished := mt.FinishedSpans()
+		require.Len(t, finished, 1)
+
+		// The request should have the security scanner attack attempt event (appsec rule id crs-913-120).
+		event := finished[0].Tag("_dd.appsec.json")
+		require.NotNil(t, event)
+		require.True(t, strings.Contains(event.(string), "crs-913-120"))
+	})
 }

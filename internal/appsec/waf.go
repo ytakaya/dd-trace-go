@@ -100,6 +100,8 @@ func newWAFEventListener(handle *waf.Handle, addresses []string, timeout time.Du
 				values[serverRequestCookiesAddr] = args.Cookies
 			case serverRequestQueryAddr:
 				values[serverRequestQueryAddr] = args.Query
+			case serverRequestPathParams:
+				values[serverRequestPathParams] = args.PathParams
 			}
 		}
 		matches = runWAF(wafCtx, values, timeout)
@@ -121,6 +123,7 @@ const (
 	serverRequestHeadersNoCookiesAddr = "server.request.headers.no_cookies"
 	serverRequestCookiesAddr          = "server.request.cookies"
 	serverRequestQueryAddr            = "server.request.query"
+	serverRequestPathParams           = "server.request.path_params"
 )
 
 // List of rule addresses currently supported by the WAF
@@ -129,6 +132,7 @@ var supportedAddressesList = []string{
 	serverRequestHeadersNoCookiesAddr,
 	serverRequestCookiesAddr,
 	serverRequestQueryAddr,
+	serverRequestPathParams,
 }
 
 func init() {
