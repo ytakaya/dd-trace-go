@@ -42,18 +42,24 @@ type (
 		// Status corresponds to the address `server.response.status`
 		Status int
 	}
+
+	// AppSecParams is the extra parameters that need to be passed over to the AppSec WrapHandler (i.e params
+	// not retrievable from the http.Request, such as path parameters)
+	AppSecParams struct {
+		PathParams map[string]string
+	}
 )
 
 // WrapHandler wraps the given HTTP handler with the abstract HTTP operation defined by HandlerOperationArgs and
 // HandlerOperationRes.
-func WrapHandler(handler http.Handler, span ddtrace.Span) http.Handler {
+func WrapHandler(handler http.Handler, span ddtrace.Span, params AppSecParams) http.Handler {
 	// TODO(Julio-Guerra): move these to service entry tags
 	span.SetTag("_dd.appsec.enabled", 1)
 	span.SetTag("_dd.runtime_family", "go")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var secEvent json.RawMessage
-		args := MakeHandlerOperationArgs(r, nil, func(event json.RawMessage) {
+		args := MakeHandlerOperationArgs(r, params.PathParams, func(event json.RawMessage) {
 			secEvent = event
 		})
 		op := StartOperation(
