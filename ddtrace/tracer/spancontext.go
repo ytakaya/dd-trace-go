@@ -6,6 +6,7 @@
 package tracer
 
 import (
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -215,6 +216,20 @@ func (t *trace) setTag(key, value string) {
 	t.tags[key] = value
 }
 
+func (t *trace) buildNewUpstreamServices(service string, priority int, sampler samplerName, rate float64) string {
+	sb64 := b64Encode(service)
+	p := strconv.Itoa(priority)
+	s := strconv.Itoa(int(sampler))
+	r := ""
+	if !math.IsNaN(rate) {
+		r = strconv.FormatFloat(rate, 'f', 4, 64)
+	}
+	if len(t.upstreamServices) > 0 {
+		return t.upstreamServices + ";" + sb64 + "|" + p + "|" + s + "|" + r
+	}
+	return sb64 + "|" + p + "|" + s + "|" + r
+}
+
 func (t *trace) setSamplingPriorityLocked(service string, p int, sampler samplerName, rate float64) {
 	if t.locked {
 		return
@@ -229,12 +244,7 @@ func (t *trace) setSamplingPriorityLocked(service string, p int, sampler sampler
 	}
 	*t.priority = float64(p)
 	if sampler != samplerNone {
-		encodedService := b64Encode(service)
-		if len(t.upstreamServices) > 0 {
-			t.setTag(keyUpstreamServices, t.upstreamServices+";"+encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
-		} else {
-			t.setTag(keyUpstreamServices, encodedService+"|"+strconv.Itoa(p)+"|"+strconv.Itoa(int(sampler))+"|"+strconv.FormatFloat(rate, 'f', 4, 64))
-		}
+		t.setTag(keyUpstreamServices, t.buildNewUpstreamServices(service, p, sampler, rate))
 	}
 }
 
@@ -258,8 +268,7 @@ func (t *trace) push(sp *span) {
 		return
 	}
 	if v, ok := sp.Metrics[keySamplingPriority]; ok {
-		// TODO: this can be removed, it looks it's noop.
-		t.setSamplingPriorityLocked(sp.Service, int(v), samplerNone, 0)
+		t.setSamplingPriorityLocked(sp.Service, int(v), samplerNone, math.NaN())
 	}
 	t.spans = append(t.spans, sp)
 	if haveTracer {
@@ -290,6 +299,10 @@ func (t *trace) finishedOne(s *span) {
 	}
 	if len(t.spans) > 0 && s == t.spans[0] {
 		// first span in chunk finished, lock down the tags
+		//
+		// TODO(x): make sure this doesn't happen in vain when switching to
+		// the new wire format. We won't need to set the tags on the first span
+		// in the chunk there.
 		for k, v := range t.tags {
 			s.setMeta(k, v)
 		}

@@ -39,7 +39,7 @@ var (
 	// Replaced in tests
 	defaultSocketDSD = "/var/run/datadog/dsd.socket"
 
-	// defaultMaxTagsHeaderLen specifies the default maximum length of trace tags header value.
+	// defaultMaxTagsHeaderLen specifies the default maximum length of the X-Datadog-Tags header value.
 	defaultMaxTagsHeaderLen = 512
 )
 
@@ -135,7 +135,7 @@ type config struct {
 	// enabled reports whether tracing is enabled.
 	enabled bool
 
-	// maxTagsHeaderLen specifies the maximum length of trace tags header value.
+	// maxTagsHeaderLen specifies the maximum length of the X-Datadog-Tags header value.
 	// It defaults to defaultMaxTagsHeaderLen.
 	maxTagsHeaderLen int
 }
@@ -230,7 +230,7 @@ func newConfig(opts ...StartOption) *config {
 	// TODO(fg): set these to true before going GA with this.
 	c.profilerEndpoints = internal.BoolEnv(traceprof.EndpointEnvVar, false)
 	c.profilerHotspots = internal.BoolEnv(traceprof.CodeHotspotsEnvVar, false)
-	c.maxTagsHeaderLen = internal.IntEnv("DD_MAX_TAGS_HEADER_LEN", defaultMaxTagsHeaderLen)
+	c.maxTagsHeaderLen = internal.IntEnv("DD_TRACE_TAGS_PROPAGATION_MAX_LENGTH", defaultMaxTagsHeaderLen)
 
 	for _, fn := range opts {
 		fn(c)

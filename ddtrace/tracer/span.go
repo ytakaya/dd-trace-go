@@ -10,6 +10,7 @@ package tracer
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"runtime"
@@ -287,11 +288,11 @@ func (s *span) setTagBool(key string, v bool) {
 		}
 	case ext.ManualDrop:
 		if v {
-			s.setSamplingPriorityLocked(ext.PriorityUserReject, samplerManual, 0)
+			s.setSamplingPriorityLocked(ext.PriorityUserReject, samplerManual, math.NaN())
 		}
 	case ext.ManualKeep:
 		if v {
-			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerManual, 0)
+			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerManual, math.NaN())
 		}
 	default:
 		if v {
@@ -312,12 +313,12 @@ func (s *span) setMetric(key string, v float64) {
 	switch key {
 	case ext.ManualKeep:
 		if v == float64(samplerAppSec) {
-			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerAppSec, 0)
+			s.setSamplingPriorityLocked(ext.PriorityUserKeep, samplerAppSec, math.NaN())
 		}
 	case ext.SamplingPriority:
 		// ext.SamplingPriority is deprecated in favor of ext.ManualKeep and ext.ManualDrop.
 		// We have it here for backward compatibility.
-		s.setSamplingPriorityLocked(int(v), samplerManual, 0)
+		s.setSamplingPriorityLocked(int(v), samplerManual, math.NaN())
 	default:
 		s.Metrics[key] = v
 	}

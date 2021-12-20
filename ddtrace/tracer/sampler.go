@@ -24,17 +24,33 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// samplerName specifies the identification of a sampler which was
+// responsible for a certain sampling decision.
 type samplerName int8
 
 const (
-	samplerNone           samplerName = math.MinInt8
-	samplerUnknown        samplerName = -1
-	samplerDefault        samplerName = 0
-	samplerAgentRate      samplerName = 1
-	samplerRemoteRate     samplerName = 2
-	samplerRuleRate       samplerName = 3
-	samplerManual         samplerName = 4
-	samplerAppSec         samplerName = 5
+	// samplerNone specifies that the sampling decision was already made
+	// and it's noop except propagating the decision.
+	samplerNone samplerName = math.MinInt8
+	// samplerUnknown specifies that the span was sampled
+	// but, the tracer was unable to identify the sampler.
+	samplerUnknown samplerName = -1
+	// samplerDefault specifies that the span was sampled without any sampler.
+	samplerDefault samplerName = 0
+	// samplerAgentRate specifies that the span was sampled
+	// with a rate calculated by the trace agent.
+	samplerAgentRate samplerName = 1
+	// samplerRemoteRate specifies that the span was sampled
+	// with a dynamically calculated remote rate.
+	samplerRemoteRate samplerName = 2
+	// samplerRuleRate specifies that the span was sampled with a rate in config.
+	samplerRuleRate samplerName = 3
+	// samplerManual specifies that the span was sampled manually by user.
+	samplerManual samplerName = 4
+	// samplerAppSec specifies that the span was sampled by AppSec.
+	samplerAppSec samplerName = 5
+	// samplerRemoteUserRate specifies that the span was sampled
+	// with an user specified remote rate.
 	samplerRemoteUserRate samplerName = 6
 )
 

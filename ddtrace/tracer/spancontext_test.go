@@ -7,6 +7,7 @@ package tracer
 
 import (
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -418,6 +419,27 @@ func TestSpanContextIteratorBreak(t *testing.T) {
 	})
 
 	assert.Len(t, got, 0)
+}
+
+func TestBuildNewUpstreamServices(t *testing.T) {
+	var testCases = []struct {
+		upstreamServices string
+		service          string
+		priority         int
+		sampler          samplerName
+		rate             float64
+		expected         string
+	}{
+		{"", "service-account", 1, samplerAgentRate, 0.99, "c2VydmljZS1hY2NvdW50|1|1|0.9900"},
+		{"", "service-storage", 2, samplerManual, math.NaN(), "c2VydmljZS1zdG9yYWdl|2|4|"},
+		{"c2VydmljZS1hY2NvdW50|1|1|0.9900", "service-video", 1, samplerRuleRate, 1, "c2VydmljZS1hY2NvdW50|1|1|0.9900;c2VydmljZS12aWRlbw|1|3|1.0000"},
+	}
+
+	for _, tt := range testCases {
+		tr := newTrace()
+		tr.upstreamServices = tt.upstreamServices
+		assert.Equal(t, tt.expected, tr.buildNewUpstreamServices(tt.service, tt.priority, tt.sampler, tt.rate))
+	}
 }
 
 // testLogger implements a mock Printer.
