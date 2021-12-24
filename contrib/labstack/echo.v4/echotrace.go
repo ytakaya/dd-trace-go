@@ -82,13 +82,14 @@ func withAppSec(next echo.HandlerFunc) echo.HandlerFunc {
 		})
 		op := httpsec.StartOperation(args, nil)
 		defer func() {
-			op.Finish(httpsec.HandlerOperationRes{Status: c.Response().Status})
+			respHeaders := c.Response().Writer.Header()
+			op.Finish(httpsec.HandlerOperationRes{Status: c.Response().Status, Headers: respHeaders})
 			if secEvent != nil {
 				remoteIP, _, err := net.SplitHostPort(req.RemoteAddr)
 				if err != nil {
 					remoteIP = req.RemoteAddr
 				}
-				httpsec.SetSecurityEventTags(span, secEvent, remoteIP, args.Headers)
+				httpsec.SetSecurityEventTags(span, secEvent, remoteIP, args.Headers, respHeaders)
 			}
 		}()
 		return next(c)

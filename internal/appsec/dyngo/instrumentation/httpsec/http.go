@@ -39,6 +39,8 @@ type (
 	HandlerOperationRes struct {
 		// Status corresponds to the address `server.response.status`
 		Status int
+		// Headers corresponds to the address `server.response.headers.no_cookies`
+		Headers map[string][]string
 	}
 )
 
@@ -63,14 +65,14 @@ func WrapHandler(handler http.Handler, span ddtrace.Span) http.Handler {
 			if mw, ok := w.(interface{ Status() int }); ok {
 				status = mw.Status()
 			}
-			op.Finish(HandlerOperationRes{Status: status})
+			op.Finish(HandlerOperationRes{Status: status, Headers: w.Header()})
 
 			if secEvent != nil {
 				remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
 				if err != nil {
 					remoteIP = r.RemoteAddr
 				}
-				SetSecurityEventTags(span, secEvent, remoteIP, args.Headers)
+				SetSecurityEventTags(span, secEvent, remoteIP, args.Headers, w.Header())
 			}
 		}()
 		handler.ServeHTTP(w, r)
